@@ -1,0 +1,5 @@
+{
+    "uri": "mongodb://localhost:27017",
+    "database": "cviq",
+    "collection" : "logviewer-config"
+}

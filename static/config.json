@@ -1,0 +1,62 @@
+[
+    {
+      "application": "deployment",
+      "env": "local",
+      "hosts": [
+        {
+          "paths": [
+            "C:\\Users\\workspace-useful\\deployment\\logs\\deployment.log"
+          ],
+          "endpoint": "http://localhost:8090/logviewer/search"
+        }
+      ]
+    },
+    {
+        "application": "training",
+        "env": "local",
+        "hosts": [
+          {
+            "paths": [
+              "C:\\Users\\workspace-go\\training\\logs\\out.log"
+            ],
+            "endpoint": "http://localhost:8090/logviewer/search"
+          }
+        ]
+      },
+    {
+        "application": "deployment",
+        "env": "sit",
+        "hosts": [
+          {
+            "paths": [
+              "/opt/deployment/logs/deployment.log"
+            ],
+            "endpoint": "http://somehost/8090/logviewer/search"
+          }
+        ]
+      },
+      {
+        "application": "training",
+        "env": "sit",
+        "hosts": [
+          {
+            "paths": [
+              "/opt/training_sit/logs/out.log"
+            ],
+            "endpoint": "http://somehost:8090/logviewer/search"
+          }
+        ]
+      },
+      {
+        "application": "training",
+        "env": "uat",
+        "hosts": [
+          {
+            "paths": [
+              "/opt/training/logs/out.log"
+            ],
+            "endpoint": "http://somehost:8090/logviewer/search"
+          }
+        ]
+      }
+  ]
