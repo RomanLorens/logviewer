@@ -31,6 +31,7 @@ func StartServer() {
 	register("/search", searchHandler, r, http.MethodPost)
 	register("/config", configHandler, r, http.MethodGet)
 	register("/list-logs", listLogs, r, http.MethodPost)
+	register("/tail-log", tailLog, r, http.MethodPost)
 
 	log.Info(context.Background(), "Starting server on %v port, context %v", config.ServerConfiguration.Port, config.ServerConfiguration.Context)
 	if err := http.ListenAndServe(fmt.Sprintf(":%v", config.ServerConfiguration.Port), r); err != nil {
@@ -38,7 +39,23 @@ func StartServer() {
 	}
 }
 
+func tailLog(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+	app, err := toApp(r)
+	if err != nil {
+		return nil, err
+	}
+	return search.TailLog(r.Context(), app)
+}
+
 func listLogs(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+	var s, err = toSearch(r)
+	if err != nil {
+		return nil, err
+	}
+	return search.ListLogs(r.Context(), s)
+}
+
+func toApp(r *http.Request) (*search.Application, *e.Error) {
 	var app search.Application
 	bytes, err := ioutil.ReadAll(r.Body)
 	defer r.Body.Close()
@@ -49,7 +66,7 @@ func listLogs(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
 	if err != nil {
 		return nil, e.Errorf(http.StatusInternalServerError, "Could not unmarshal data, %v", err)
 	}
-	return search.ListLogs(r.Context(), &app)
+	return &app, nil
 }
 
 func configHandler(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
@@ -57,6 +74,15 @@ func configHandler(w http.ResponseWriter, r *http.Request) (interface{}, *e.Erro
 }
 
 func searchHandler(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+	var s, err = toSearch(r)
+	if err != nil {
+		return nil, err
+	}
+	res, er := search.Find(r.Context(), s)
+	return res, er
+}
+
+func toSearch(r *http.Request) (*search.Search, *e.Error) {
 	var s search.Search
 	bytes, err := ioutil.ReadAll(r.Body)
 	defer r.Body.Close()
@@ -67,8 +93,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) (interface{}, *e.Erro
 	if err != nil {
 		return nil, e.Errorf(http.StatusInternalServerError, "Could not unmarshal data, %v", err)
 	}
-	res, er := s.Find(r.Context())
-	return res, er
+	return &s, nil
 }
 
 func notFound(w http.ResponseWriter, r *http.Request) {
