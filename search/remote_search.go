@@ -3,6 +3,7 @@ package search
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
@@ -14,6 +15,11 @@ import (
 
 //RemoteSearch remote search
 type RemoteSearch struct{}
+
+//trust all - mostly for requests from localhost
+var client = &http.Client{Transport: &http.Transport{
+	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+}}
 
 //Tail tail log
 func (RemoteSearch) Tail(ctx context.Context, app *Application) (*Result, *e.Error) {
@@ -65,7 +71,7 @@ func callAPI(ctx context.Context, url string, post interface{}) ([]byte, *e.Erro
 	if err != nil {
 		return nil, e.Errorf(500, "Could not marshal post %v", err)
 	}
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(b))
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(b))
 	if err != nil {
 		return nil, e.Errorf(500, "Request to %v failed, %v", url, err)
 	}

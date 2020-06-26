@@ -17,6 +17,8 @@ type ServerConfig struct {
 	Port         int
 	Context      string
 	StaticFolder string
+	Cert         string
+	CertKey      string
 }
 
 //Config config
@@ -30,6 +32,7 @@ type Config struct {
 type Host struct {
 	Paths    []string `json:"paths"`
 	Endpoint string   `json:"endpoint"`
+	Health   string   `json:"health"`
 }
 
 var (
@@ -45,9 +48,15 @@ func init() {
 	cr := flag.String("config", "static", "config resolver")
 	configFile := flag.String("configFile", "static/config.json", "config resolver")
 	staticFolder := flag.String("staticFolder", "./dist", "static folder")
+	cert := flag.String("cert", "", "https server cert")
+	certKey := flag.String("certKey", "", "https server cert key")
 	flag.Parse()
 
 	var err *e.Error
+
+	if *cert != "" && *certKey == "" {
+		log.Panicf("Both cert and cert key must be set!")
+	}
 
 	switch *cr {
 	case "static":
@@ -57,13 +66,14 @@ func init() {
 		logger.Info(context.Background(), "Loading mongo config from %v", *configFile)
 		ApplicationsConfig, err = MongoConfigResolver{FilePath: *configFile}.GetConfig()
 	default:
-		panic("unknown config option")
+		log.Panicf("unknown config option")
 	}
 	if err != nil {
 		log.Panicf("Could not init configuration with %v, %v", *configFile, err)
 	}
 
-	ServerConfiguration = &ServerConfig{Port: *port, Context: *appContext, StaticFolder: *staticFolder}
+	ServerConfiguration = &ServerConfig{Port: *port, Context: *appContext, StaticFolder: *staticFolder,
+		Cert: *cert, CertKey: *certKey}
 }
 
 //Resolver config resolver

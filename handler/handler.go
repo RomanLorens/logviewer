@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -32,11 +33,39 @@ func StartServer() {
 	register("/config", configHandler, r, http.MethodGet)
 	register("/list-logs", listLogs, r, http.MethodPost)
 	register("/tail-log", tailLog, r, http.MethodPost)
+	registerWS("/ws/apps-health", appsHealth, r, http.MethodGet)
+	registerWS("/ws/tail-log", tailLogWS, r, http.MethodGet)
 
-	log.Info(context.Background(), "Starting server on %v port, context %v", config.ServerConfiguration.Port, config.ServerConfiguration.Context)
-	if err := http.ListenAndServe(fmt.Sprintf(":%v", config.ServerConfiguration.Port), r); err != nil {
-		log.Error(context.Background(), "Error on server main thread, %v", err)
+	cert := config.ServerConfiguration.Cert
+	if cert != "" {
+		log.Info(context.Background(), "Starting https server on %v port, context %v", config.ServerConfiguration.Port, config.ServerConfiguration.Context)
+		cfg := &tls.Config{
+			MinVersion:       tls.VersionTLS12,
+			CurvePreferences: []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+			/*PreferServerCipherSuites: true,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+				tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+			},
+			*/
+		}
+		srv := &http.Server{
+			Addr:      fmt.Sprintf(":%v", config.ServerConfiguration.Port),
+			TLSConfig: cfg,
+			Handler:   r,
+		}
+		if err := srv.ListenAndServeTLS(cert, config.ServerConfiguration.CertKey); err != nil {
+			log.Error(context.Background(), "Error on server main thread, %v", err)
+		}
+	} else {
+		log.Info(context.Background(), "Starting server on %v port, context %v", config.ServerConfiguration.Port, config.ServerConfiguration.Context)
+		if err := http.ListenAndServe(fmt.Sprintf(":%v", config.ServerConfiguration.Port), r); err != nil {
+			log.Error(context.Background(), "Error on server main thread, %v", err)
+		}
 	}
+
 }
 
 func tailLog(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
@@ -123,6 +152,23 @@ func register(path string, fn func(w http.ResponseWriter, r *http.Request) (inte
 		if err := json.NewEncoder(w).Encode(res); nil != err {
 			errorResponse(e.Errorf(http.StatusInternalServerError, "Could not encode response"), w, r)
 		}
+	}
+	r.HandleFunc(endpoint, h).Methods(methods...)
+}
+
+func registerWS(path string, fn func(w http.ResponseWriter, r *http.Request) *e.Error,
+	r *mux.Router, methods ...string) {
+	endpoint := fmt.Sprintf("%s%s", config.ServerConfiguration.Context, path)
+	if endpoint[0] != '/' {
+		endpoint = fmt.Sprintf("/%s", endpoint)
+	}
+	log.Info(context.Background(), "Registered WS endpoint %s %v", endpoint, methods)
+	h := func(w http.ResponseWriter, r *http.Request) {
+		err := fn(w, r)
+		if err != nil {
+			log.Error(r.Context(), err.Message)
+		}
+
 	}
 	r.HandleFunc(endpoint, h).Methods(methods...)
 }
