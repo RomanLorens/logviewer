@@ -81,7 +81,7 @@ func (f MongoConfigResolver) GetConfig() ([]*Config, *e.Error) {
 	collection := client.Database(mongoCfg.DB).Collection(mongoCfg.Collection)
 	cur, err := collection.Find(context.Background(), bson.M{})
 	if err != nil {
-		return nil, e.Errorf(http.StatusBadRequest, "Error for getting mongo configs with %v creds, %v", creds, err)
+		return nil, e.Errorf(http.StatusBadRequest, "Error for getting mongo configs with %v creds, %v", mongoCfg, err)
 	}
 	defer cur.Close(context.Background())
 	cfgs := make([]*Config, 0)
@@ -91,6 +91,7 @@ func (f MongoConfigResolver) GetConfig() ([]*Config, *e.Error) {
 		if err != nil {
 			return nil, e.Errorf(http.StatusBadRequest, "Could not decode from mongo %v", err)
 		}
+		elem.ID = cur.Current.Lookup("_id").ObjectID().Hex()
 		cfgs = append(cfgs, &elem)
 	}
 	logger.Info(context.Background(), "Loaded %v configs from mongo", len(cfgs))

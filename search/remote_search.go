@@ -25,8 +25,8 @@ var client = &http.Client{Transport: &http.Transport{
 func (RemoteSearch) Tail(ctx context.Context, app *Application) (*Result, *e.Error) {
 	log.Info(ctx, "Tail log remotely")
 	var res *Result
-	url := apiURL(app.Host, "tail-log")
-	body, err := callAPI(ctx, url, app)
+	url := ApiURL(app.Host, "tail-log")
+	body, err := CallAPI(ctx, url, app)
 	if err != nil {
 		return nil, err
 	}
@@ -36,11 +36,18 @@ func (RemoteSearch) Tail(ctx context.Context, app *Application) (*Result, *e.Err
 	return res, nil
 }
 
+//DownloadLog download log
+func (RemoteSearch) DownloadLog(ctx context.Context, ld *LogDownload) ([]byte, *e.Error) {
+	log.Info(ctx, "Download log remotely")
+	url := ApiURL(ld.Host, "download-log")
+	return CallAPI(ctx, url, ld)
+}
+
 //Grep grep logs
 func (RemoteSearch) Grep(ctx context.Context, url string, s *Search) ([]*Result, *e.Error) {
 	log.Info(ctx, "Grep log remotely")
-	url = apiURL(url, "search")
-	body, err := callAPI(ctx, url, s)
+	url = ApiURL(url, "search")
+	body, err := CallAPI(ctx, url, s)
 	if err != nil {
 		return nil, err
 	}
@@ -54,8 +61,8 @@ func (RemoteSearch) Grep(ctx context.Context, url string, s *Search) ([]*Result,
 //List list logs
 func (RemoteSearch) List(ctx context.Context, url string, s *Search) ([]*LogDetails, *e.Error) {
 	var logs []*LogDetails
-	url = apiURL(url, "list-logs")
-	body, err := callAPI(ctx, url, s)
+	url = ApiURL(url, "list-logs")
+	body, err := CallAPI(ctx, url, s)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +72,8 @@ func (RemoteSearch) List(ctx context.Context, url string, s *Search) ([]*LogDeta
 	return logs, nil
 }
 
-func callAPI(ctx context.Context, url string, post interface{}) ([]byte, *e.Error) {
+//CallAPI call api
+func CallAPI(ctx context.Context, url string, post interface{}) ([]byte, *e.Error) {
 	log.Info(ctx, "Remote api for %v", url)
 	b, err := json.Marshal(post)
 	if err != nil {
@@ -87,7 +95,8 @@ func callAPI(ctx context.Context, url string, post interface{}) ([]byte, *e.Erro
 	return body, nil
 }
 
-func apiURL(url string, api string) string {
+//ApiURL api url
+func ApiURL(url string, api string) string {
 	if strings.HasSuffix(url, api) {
 		return url
 	}

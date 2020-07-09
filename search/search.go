@@ -48,11 +48,18 @@ type LogDetails struct {
 	Host    string `json:"host"`
 }
 
+//LogDownload log download
+type LogDownload struct {
+	Host string `json:"host"`
+	Log  string `json:"log"`
+}
+
 //LogSearch available log actions
 type LogSearch interface {
 	Tail(ctx context.Context, app *Application) (*Result, *e.Error)
 	Grep(ctx context.Context, host string, s *Search) []*Result
 	List(ctx context.Context, url string, s *Search) ([]*LogDetails, *e.Error)
+	DownloadLog(ctx context.Context, req *LogDownload) ([]byte, *e.Error)
 }
 
 var (
@@ -61,9 +68,20 @@ var (
 	rs         = RemoteSearch{}
 )
 
+//DownloadLog download log
+func DownloadLog(ctx context.Context, lg *LogDownload) ([]byte, *e.Error) {
+	if lg.Host == "" || lg.Log == "" {
+		return nil, e.Errorf(400, "Payload is missing host and/or log values")
+	}
+	if IsLocal(ctx, lg.Host) {
+		return ls.DownloadLog(ctx, lg)
+	}
+	return rs.DownloadLog(ctx, lg)
+}
+
 //TailLog tail log
 func TailLog(ctx context.Context, app *Application) (*Result, *e.Error) {
-	if isLocal(ctx, app.Host) {
+	if IsLocal(ctx, app.Host) {
 		return ls.Tail(ctx, app)
 	}
 	return rs.Tail(ctx, app)
@@ -80,7 +98,7 @@ func Find(ctx context.Context, s *Search) ([]*Result, *e.Error) {
 		go func(host string) {
 			log.Info(ctx, "starting goroutine for %v", host)
 			start := time.Now()
-			local := isLocal(ctx, host)
+			local := IsLocal(ctx, host)
 			var res []*Result
 			if local {
 				res = ls.Grep(ctx, host, s)
@@ -111,7 +129,7 @@ func ListLogs(ctx context.Context, s *Search) ([]*LogDetails, *e.Error) {
 	for _, h := range s.Hosts {
 		go func(host string) {
 			log.Info(ctx, "host routine for %v started...", host)
-			if isLocal(ctx, host) {
+			if IsLocal(ctx, host) {
 				l, _ := ls.List(ctx, host, s) //no error for local
 				logs = append(logs, l...)
 			} else {
@@ -131,7 +149,7 @@ func ListLogs(ctx context.Context, s *Search) ([]*LogDetails, *e.Error) {
 	return logs, nil
 }
 
-func isLocal(ctx context.Context, host string) bool {
+func IsLocal(ctx context.Context, host string) bool {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Error(ctx, "Could not check hostname, %v", err)

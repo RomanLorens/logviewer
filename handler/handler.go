@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"path"
 
 	"github.com/RomanLorens/logviewer/config"
 	e "github.com/RomanLorens/logviewer/error"
 	log "github.com/RomanLorens/logviewer/logger"
 	"github.com/RomanLorens/logviewer/search"
+	"github.com/RomanLorens/logviewer/stat"
 
 	"github.com/gorilla/mux"
 	uuid "github.com/nu7hatch/gouuid"
@@ -33,8 +35,10 @@ func StartServer() {
 	register("/config", configHandler, r, http.MethodGet)
 	register("/list-logs", listLogs, r, http.MethodPost)
 	register("/tail-log", tailLog, r, http.MethodPost)
-	registerWS("/ws/apps-health", appsHealth, r, http.MethodGet)
-	registerWS("/ws/tail-log", tailLogWS, r, http.MethodGet)
+	register("/stats", stats, r, http.MethodPost)
+	registerWithoutResponse("/download-log", downloadLog, r, http.MethodPost)
+	registerWS("/ws/apps-health", appsHealth, r)
+	registerWS("/ws/tail-log", tailLogWS, r)
 
 	cert := config.ServerConfiguration.Cert
 	if cert != "" {
@@ -66,6 +70,33 @@ func StartServer() {
 		}
 	}
 
+}
+
+func downloadLog(w http.ResponseWriter, r *http.Request) {
+	var ld search.LogDownload
+	err := json.NewDecoder(r.Body).Decode(&ld)
+	if err != nil {
+		errorResponse(e.Errorf(500, err.Error()), w, r)
+		return
+	}
+	defer r.Body.Close()
+	b, er := search.DownloadLog(r.Context(), &ld)
+	if er != nil {
+		errorResponse(er, w, r)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/octet-stream")
+	w.Header().Add("Content-Disposition", fmt.Sprintf("attachment; filename=\"%v\"", path.Base(ld.Log)))
+	w.Write(b)
+}
+
+func stats(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+	app, err := toApp(r)
+	if err != nil {
+		return nil, err
+	}
+	return stat.Get(r.Context(), app)
 }
 
 func tailLog(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
@@ -156,13 +187,23 @@ func register(path string, fn func(w http.ResponseWriter, r *http.Request) (inte
 	r.HandleFunc(endpoint, h).Methods(methods...)
 }
 
-func registerWS(path string, fn func(w http.ResponseWriter, r *http.Request) *e.Error,
+func registerWithoutResponse(path string, fn func(w http.ResponseWriter, r *http.Request),
 	r *mux.Router, methods ...string) {
 	endpoint := fmt.Sprintf("%s%s", config.ServerConfiguration.Context, path)
 	if endpoint[0] != '/' {
 		endpoint = fmt.Sprintf("/%s", endpoint)
 	}
-	log.Info(context.Background(), "Registered WS endpoint %s %v", endpoint, methods)
+	log.Info(context.Background(), "Registered endpoint %s %v", endpoint, methods)
+	r.HandleFunc(endpoint, fn).Methods(methods...)
+}
+
+func registerWS(path string, fn func(w http.ResponseWriter, r *http.Request) *e.Error,
+	r *mux.Router) {
+	endpoint := fmt.Sprintf("%s%s", config.ServerConfiguration.Context, path)
+	if endpoint[0] != '/' {
+		endpoint = fmt.Sprintf("/%s", endpoint)
+	}
+	log.Info(context.Background(), "Registered WS endpoint %s", endpoint)
 	h := func(w http.ResponseWriter, r *http.Request) {
 		err := fn(w, r)
 		if err != nil {
@@ -170,7 +211,7 @@ func registerWS(path string, fn func(w http.ResponseWriter, r *http.Request) *e.
 		}
 
 	}
-	r.HandleFunc(endpoint, h).Methods(methods...)
+	r.HandleFunc(endpoint, h)
 }
 
 func errorResponse(err *e.Error, w http.ResponseWriter, r *http.Request) {

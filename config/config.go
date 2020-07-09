@@ -21,11 +21,21 @@ type ServerConfig struct {
 	CertKey      string
 }
 
+//LogStructure log structure
+type LogStructure struct {
+	Date  int `json:"date"`
+	User  int `json:"user"`
+	Reqid int `json:"reqid"`
+	Level int `json:"level"`
+}
+
 //Config config
 type Config struct {
-	Application string `json:"application"`
-	Hosts       []Host `json:"hosts"`
-	Env         string `json:"env"`
+	ID           string        `json:"id"`
+	Application  string        `json:"application"`
+	Hosts        []Host        `json:"hosts"`
+	Env          string        `json:"env"`
+	LogStructure *LogStructure `json:"logStructure"`
 }
 
 //Host host

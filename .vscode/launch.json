@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "debug",
             "env": {},
-            "args": [],
+            "args": ["-config=mongo", "-configFile=static/mongo-sit.json", "-cert=static/https-server.crt", "-certKey=static/https-server.key"],
             "remotePath": "",
             "host": "127.0.0.1",
             "program": "${workspaceRoot}",

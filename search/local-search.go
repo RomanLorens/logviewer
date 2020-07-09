@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,6 +32,15 @@ func (LocalSearch) Grep(ctx context.Context, host string, s *Search) []*Result {
 	return out
 }
 
+//DownloadLog read file
+func (LocalSearch) DownloadLog(ctx context.Context, req *LogDownload) ([]byte, *e.Error) {
+	b, err := ioutil.ReadFile(req.Log)
+	if err != nil {
+		return nil, e.Errorf(500, "Could not read file %v, %v", req.Log, err)
+	}
+	return b, nil
+}
+
 func grepFile(path string, s *Search) ([]string, *e.Error) {
 	out := make([]string, 0, 20)
 	f, err := os.Open(path)
@@ -42,7 +52,7 @@ func grepFile(path string, s *Search) ([]string, *e.Error) {
 	val := strings.ToLower(s.Value)
 	for scanner.Scan() {
 		if strings.Contains(strings.ToLower(scanner.Text()), val) {
-			out = append(out, normalizeText(scanner.Text()))
+			out = append(out, NormalizeText(scanner.Text()))
 		}
 	}
 	var er *e.Error
@@ -87,9 +97,9 @@ func (LocalSearch) Tail(ctx context.Context, app *Application) (*Result, *e.Erro
 
 	lines := make([]string, 0, 100)
 	for _, l := range strings.Split(string(bytes), "\n") {
-		l = normalizeText(l)
+		l = NormalizeText(l)
 		if strings.TrimSpace(l) != "" {
-			lines = append(lines, normalizeText(l))
+			lines = append(lines, NormalizeText(l))
 		}
 	}
 	return &Result{
@@ -149,7 +159,7 @@ func getStats(dir string, host string) ([]*LogDetails, *e.Error) {
 		if err == nil && !info.IsDir() {
 			logs = append(logs, &LogDetails{
 				ModTime: info.ModTime().Unix(),
-				Name:    info.Name(),
+				Name:    path,
 				Size:    info.Size(),
 				Host:    host,
 			})
@@ -159,7 +169,8 @@ func getStats(dir string, host string) ([]*LogDetails, *e.Error) {
 	return logs, nil
 }
 
-func normalizeText(t string) string {
+//NormalizeText normalize level
+func NormalizeText(t string) string {
 	t = strings.ReplaceAll(t, "\033[0;31mERROR\033[0m", "ERROR")
 	t = strings.ReplaceAll(t, "\033[0;33mWARNING\033[0m", "WARNING")
 	t = strings.ReplaceAll(t, "\033[0;32mINFO\033[0m", "INFO")
