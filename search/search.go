@@ -18,6 +18,8 @@ type Application struct {
 	Env           string `json:"env"`
 	Log           string `json:"log"`
 	Host          string `json:"host"`
+	From          int    `json:"from"`
+	Size          int    `json:"size"`
 }
 
 //Search search

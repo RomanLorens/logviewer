@@ -51,17 +51,7 @@ func _log(ctx context.Context, level string, msg string, args ...interface{}) {
 	var user, req string
 	user, _ = ctx.Value(UserKey).(string)
 	req, _ = ctx.Value(ReqID).(string)
-	formatter := ""
-	switch level {
-	case "ERROR":
-		formatter = "|%v|%v|\033[0;31m%v\033[0m|%v"
-	case "WARNING":
-		formatter = "|%v|%v|\033[0;33m%v\033[0m|%v"
-	case "INFO":
-		formatter = "|%v|%v|\033[0;32m%v\033[0m|%v"
-	default:
-		formatter = "|%v|%v|%v"
-	}
+	formatter := "|%v|%v|%v|%v"
 	m := fmt.Sprintf(msg, args...)
 	log.Printf(formatter, strings.ToLower(user), req, level, m)
 }

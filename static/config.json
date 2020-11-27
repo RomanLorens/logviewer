@@ -5,7 +5,7 @@
       "hosts": [
         {
           "paths": [
-            "C:\\Users\\workspace-useful\\deployment\\logs\\deployment.log"
+            "C:\\Users\\rl78794.NAM\\workspace-useful\\deployment\\logs\\deployment.log"
           ],
           "endpoint": "http://localhost:8090/logviewer/search"
         }
@@ -17,7 +17,8 @@
         "hosts": [
           {
             "paths": [
-              "C:\\Users\\workspace-go\\training\\logs\\out.log"
+              "C:\\Users\\rl78794.NAM\\workspace-go\\citinlpannotationservice\\logs\\out.log",
+              "C:\\Users\\rl78794.NAM\\workspace-go\\citinlpannotationservice\\logs\\ui-access.log"
             ],
             "endpoint": "http://localhost:8090/logviewer/search"
           }
@@ -29,9 +30,9 @@
         "hosts": [
           {
             "paths": [
-              "/opt/deployment/logs/deployment.log"
+              "/opt/citimkts/cviq/deployment/logs/deployment.log"
             ],
-            "endpoint": "http://somehost/8090/logviewer/search"
+            "endpoint": "http://sd-246c-9acf.nam.nsroot.net:8090/logviewer/search"
           }
         ]
       },
@@ -41,9 +42,9 @@
         "hosts": [
           {
             "paths": [
-              "/opt/training_sit/logs/out.log"
+              "/opt/citimkts/cviq/training_sit/logs/out.log"
             ],
-            "endpoint": "http://somehost:8090/logviewer/search"
+            "endpoint": "http://sd-246c-9acf.nam.nsroot.net:8090/logviewer/search"
           }
         ]
       },
@@ -53,9 +54,9 @@
         "hosts": [
           {
             "paths": [
-              "/opt/training/logs/out.log"
+              "/opt/citimkts/cviq/training/logs/out.log"
             ],
-            "endpoint": "http://somehost:8090/logviewer/search"
+            "endpoint": "http://sd-246c-9acf.nam.nsroot.net:8090/logviewer/search"
           }
         ]
       }

@@ -9,11 +9,15 @@ import (
 	"net/http"
 	"path"
 
+	"github.com/RomanLorens/logviewer/auth"
 	"github.com/RomanLorens/logviewer/config"
 	e "github.com/RomanLorens/logviewer/error"
 	log "github.com/RomanLorens/logviewer/logger"
+	"github.com/RomanLorens/logviewer/proxy"
+	"github.com/RomanLorens/logviewer/request"
 	"github.com/RomanLorens/logviewer/search"
 	"github.com/RomanLorens/logviewer/stat"
+	"github.com/RomanLorens/logviewer/user"
 
 	"github.com/gorilla/mux"
 	uuid "github.com/nu7hatch/gouuid"
@@ -36,7 +40,14 @@ func StartServer() {
 	register("/list-logs", listLogs, r, http.MethodPost)
 	register("/tail-log", tailLog, r, http.MethodPost)
 	register("/stats", stats, r, http.MethodPost)
+	register("/errors", errors, r, http.MethodPost)
+	register("/support/health", health, r, http.MethodGet)
+	register("/auth/current-user", currentUser, r, http.MethodGet)
+	register("/support/request-details", printRequest, r, http.MethodGet, http.MethodPost)
+	register("/user-details", userDetailsHandler, r, http.MethodGet)
+
 	registerWithoutResponse("/download-log", downloadLog, r, http.MethodPost)
+	registerWithoutResponse("/support/proxy", proxyHandler, r, http.MethodGet, http.MethodPost)
 	registerWS("/ws/apps-health", appsHealth, r)
 	registerWS("/ws/tail-log", tailLogWS, r)
 
@@ -72,6 +83,18 @@ func StartServer() {
 
 }
 
+func userDetailsHandler(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+	return user.Details(r.Context(), r.FormValue("user"))
+}
+
+func currentUser(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+	return auth.UserWithRoles(r), nil
+}
+
+func proxyHandler(w http.ResponseWriter, r *http.Request) {
+	proxy.Forward(r.FormValue("url"), &w, r)
+}
+
 func downloadLog(w http.ResponseWriter, r *http.Request) {
 	var ld search.LogDownload
 	err := json.NewDecoder(r.Body).Decode(&ld)
@@ -91,12 +114,28 @@ func downloadLog(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
+func health(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+	return "OK", nil
+}
+
+func printRequest(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+	return request.Parse(r), nil
+}
+
 func stats(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
 	app, err := toApp(r)
 	if err != nil {
 		return nil, err
 	}
 	return stat.Get(r.Context(), app)
+}
+
+func errors(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+	app, err := toApp(r)
+	if err != nil {
+		return nil, err
+	}
+	return stat.GetErrors(r.Context(), app)
 }
 
 func tailLog(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
@@ -236,23 +275,11 @@ func setContext(w http.ResponseWriter, r *http.Request) *http.Request {
 			id = v.String()
 		}
 	}
-	u := UserFromRequest(r)
+	u := auth.UserFromRequest(r)
 	ctx := context.WithValue(r.Context(), log.UserKey, u)
 	ctx = context.WithValue(ctx, log.ReqID, id)
 	r = r.WithContext(ctx)
 	w.Header().Add("__req_id__", id)
 	log.Info(r.Context(), "request [%v] %v", r.Method, r.URL.RequestURI())
 	return r
-}
-
-//UserFromRequest user
-func UserFromRequest(r *http.Request) string {
-	u := r.Header.Get("x-citiportal-ssoid")
-	if u == "" {
-		u = r.Header.Get("x-citiportal-LoginID")
-	}
-	if u == "" {
-		u = "anonymous"
-	}
-	return u
 }

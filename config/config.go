@@ -23,10 +23,11 @@ type ServerConfig struct {
 
 //LogStructure log structure
 type LogStructure struct {
-	Date  int `json:"date"`
-	User  int `json:"user"`
-	Reqid int `json:"reqid"`
-	Level int `json:"level"`
+	Date    int `json:"date"`
+	User    int `json:"user"`
+	Reqid   int `json:"reqid"`
+	Level   int `json:"level"`
+	Message int `json:"message"`
 }
 
 //Config config
@@ -36,6 +37,7 @@ type Config struct {
 	Hosts        []Host        `json:"hosts"`
 	Env          string        `json:"env"`
 	LogStructure *LogStructure `json:"logStructure"`
+	SupportURLs  []SupportURL  `json:"supportUrls"`
 }
 
 //Host host
@@ -43,6 +45,15 @@ type Host struct {
 	Paths    []string `json:"paths"`
 	Endpoint string   `json:"endpoint"`
 	Health   string   `json:"health"`
+}
+
+//SupportURL support url
+type SupportURL struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Method      string            `json:"method"`
+	URL         string            `json:"url"`
+	Headers     map[string]string `json:"headers"`
 }
 
 var (
