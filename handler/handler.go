@@ -5,23 +5,34 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
-	"path"
 
+	log "github.com/RomanLorens/logger/log"
+	"github.com/RomanLorens/logviewer-module/model"
 	"github.com/RomanLorens/logviewer/auth"
+	"github.com/RomanLorens/logviewer/common"
 	"github.com/RomanLorens/logviewer/config"
-	e "github.com/RomanLorens/logviewer/error"
-	log "github.com/RomanLorens/logviewer/logger"
-	"github.com/RomanLorens/logviewer/proxy"
-	"github.com/RomanLorens/logviewer/request"
-	"github.com/RomanLorens/logviewer/search"
-	"github.com/RomanLorens/logviewer/stat"
+	l "github.com/RomanLorens/logviewer/logger"
+	"github.com/RomanLorens/logviewer/resolver"
+	"github.com/RomanLorens/logviewer/scheduler"
 	"github.com/RomanLorens/logviewer/user"
+	f "github.com/RomanLorens/rl-common/filter"
+
+	h "github.com/RomanLorens/logviewer-module/handler"
 
 	"github.com/gorilla/mux"
 	uuid "github.com/nu7hatch/gouuid"
 )
+
+var (
+	logger = l.L
+	lvm    = h.NewHandler(logger)
+)
+
+type errorJSON struct {
+	Msg   string `json:"msg"`
+	ReqID string `json:"reqid"`
+}
 
 //StartServer inits and starts server
 func StartServer() {
@@ -31,29 +42,45 @@ func StartServer() {
 	r.MethodNotAllowedHandler = http.HandlerFunc(notFound)
 
 	r.PathPrefix("/iq-logviewer-ui/").
-		Handler(http.StripPrefix("/iq-logviewer-ui/", http.FileServer(http.Dir(config.ServerConfiguration.StaticFolder))))
-	log.Info(context.Background(), "Registered /logviewer-ui/ with static folder %v ", config.ServerConfiguration.StaticFolder)
+		Handler(http.StripPrefix("/iq-logviewer-ui/", http.FileServer(http.Dir(config.Config.ServerConfiguration.StaticFolder))))
+	logger.Info(context.Background(), "Registered /logviewer-ui/ with static folder %v ", config.Config.ServerConfiguration.StaticFolder)
 
 	register("/", root, r, http.MethodGet)
-	register("/search", searchHandler, r, http.MethodPost)
-	register("/config", configHandler, r, http.MethodGet)
-	register("/list-logs", listLogs, r, http.MethodPost)
-	register("/tail-log", tailLog, r, http.MethodPost)
-	register("/stats", stats, r, http.MethodPost)
-	register("/errors", errors, r, http.MethodPost)
-	register("/support/health", health, r, http.MethodGet)
+	register("/"+model.SearchEndpoint, resolver.Search, r, http.MethodPost)
+	register("/"+model.ListLogsEndpoint, resolver.ListLogs, r, http.MethodPost)
+	register("/"+model.TailLogEndpoint, resolver.TailLog, r, http.MethodPost)
+	register("/"+model.StatsEndpoint, resolver.Stats, r, http.MethodPost)
+	register("/"+model.ErrorsEndpoint, resolver.Errors, r, http.MethodPost)
+	register("/"+model.DownloadLogEndpoint, resolver.DownloadLog, r, http.MethodPost)
+	register("/"+model.CollectStatsEndpoint, resolver.CollectStatsHandler, r, http.MethodPost)
+
+	register("/lvm/"+model.SearchEndpoint, lvm.Search, r, http.MethodPost)
+	register("/lvm/"+model.ListLogsEndpoint, lvm.ListLogs, r, http.MethodPost)
+	register("/lvm/"+model.TailLogEndpoint, lvm.TailLog, r, http.MethodPost)
+	register("/lvm/"+model.StatsEndpoint, lvm.Stats, r, http.MethodPost)
+	register("/lvm/"+model.ErrorsEndpoint, lvm.Errors, r, http.MethodPost)
+	register("/lvm/"+model.DownloadLogEndpoint, lvm.DownloadLog, r, http.MethodPost)
+	register("/lvm/"+model.CollectStatsEndpoint, lvm.CollectStats, r, http.MethodPost)
+
 	register("/auth/current-user", currentUser, r, http.MethodGet)
-	register("/support/request-details", printRequest, r, http.MethodGet, http.MethodPost)
 	register("/user-details", userDetailsHandler, r, http.MethodGet)
+	registerWithFilters("/populate-stats", []f.Filter{IPFilterInstance}, populateAppStats, r, http.MethodPost)
+	registerWithFilters("/populate-stats-batch", []f.Filter{IPFilterInstance}, populateStatsBatch, r, http.MethodGet)
+	register("/app-stats", appStatsHandler, r, http.MethodPost)
+	register("/config", appsConfigHandler, r, http.MethodGet)
 
-	registerWithoutResponse("/download-log", downloadLog, r, http.MethodPost)
-	registerWithoutResponse("/support/proxy", proxyHandler, r, http.MethodGet, http.MethodPost)
-	registerWS("/ws/apps-health", appsHealth, r)
-	registerWS("/ws/tail-log", tailLogWS, r)
+	supportHandlers(r)
 
-	cert := config.ServerConfiguration.Cert
+	registerWS("/ws/apps-health", lvm.AppsHealth, r)
+	registerWS("/ws/tail-log", lvm.TailLogWS, r)
+
+	if config.Config.EnableScheduler {
+		scheduler.InitScheduler()
+	}
+
+	cert := config.Config.ServerConfiguration.Cert
 	if cert != "" {
-		log.Info(context.Background(), "Starting https server on %v port, context %v", config.ServerConfiguration.Port, config.ServerConfiguration.Context)
+		logger.Info(context.Background(), "Starting https server on %v port, context %v", config.Config.ServerConfiguration.Port, config.Config.ServerConfiguration.Context)
 		cfg := &tls.Config{
 			MinVersion:       tls.VersionTLS12,
 			CurvePreferences: []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
@@ -67,197 +94,158 @@ func StartServer() {
 			*/
 		}
 		srv := &http.Server{
-			Addr:      fmt.Sprintf(":%v", config.ServerConfiguration.Port),
+			Addr:      fmt.Sprintf(":%v", config.Config.ServerConfiguration.Port),
 			TLSConfig: cfg,
 			Handler:   r,
 		}
-		if err := srv.ListenAndServeTLS(cert, config.ServerConfiguration.CertKey); err != nil {
-			log.Error(context.Background(), "Error on server main thread, %v", err)
+		if err := srv.ListenAndServeTLS(cert, config.Config.ServerConfiguration.CertKey); err != nil {
+			logger.Error(context.Background(), "Error on server main thread, %v", err)
 		}
 	} else {
-		log.Info(context.Background(), "Starting server on %v port, context %v", config.ServerConfiguration.Port, config.ServerConfiguration.Context)
-		if err := http.ListenAndServe(fmt.Sprintf(":%v", config.ServerConfiguration.Port), r); err != nil {
-			log.Error(context.Background(), "Error on server main thread, %v", err)
+		logger.Info(context.Background(), "Starting server on %v port, context %v", config.Config.ServerConfiguration.Port, config.Config.ServerConfiguration.Context)
+		if err := http.ListenAndServe(fmt.Sprintf(":%v", config.Config.ServerConfiguration.Port), r); err != nil {
+			logger.Error(context.Background(), "Error on server main thread, %v", err)
 		}
 	}
-
 }
 
-func userDetailsHandler(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+func appStatsHandler(w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	var req common.StatReq
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		return nil, fmt.Errorf("Could not parse req body, %v", err)
+	}
+	return config.GetAppStats(r.Context(), &req)
+}
+
+func populateStatsBatch(w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	date := r.FormValue("date")
+	if date == "" {
+		return nil, fmt.Errorf("Must pass date")
+	}
+	return scheduler.PopulateStatsBatch(r.Context(), date)
+}
+
+func populateAppStats(w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	var s common.AppCollectStatsRequest
+	err := json.NewDecoder(r.Body).Decode(&s)
+	if err != nil {
+		return nil, fmt.Errorf("Could not parse req body, %v", err)
+	}
+	stats, er := config.GetStatsKeys(r.Context(), s.Date)
+	if er != nil {
+		return nil, er
+	}
+	key := common.StatsKey(&common.Stats{App: s.App, Env: s.Env, LogPath: s.Log, Date: s.Date})
+	if _, exists := stats[key]; exists {
+		return fmt.Sprintf("Stats for %v already exists in mongo", s), nil
+	}
+	csr := common.CollectStatsRequest{StatsRequest: &common.StatsRequest{LogViewerEndpoint: s.LogViewerEndpoint,
+		StatsRequest: &model.StatsRequest{Log: s.Log, LogStructure: s.LogStructure}}, Date: s.Date}
+	res, err := resolver.CollectStats(r.Context(), &csr, r.Header)
+	if er != nil {
+		return nil, er
+	}
+	er = config.SaveStats(r.Context(), &common.Stats{Stats: res, LogPath: s.Log, App: s.App, Env: s.Env, Date: s.Date})
+	if er != nil {
+		return nil, er
+	}
+	return fmt.Sprintf("Saved stat %v", res), nil
+}
+
+func userDetailsHandler(w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	return user.Details(r.Context(), r.FormValue("user"))
 }
 
-func currentUser(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+func currentUser(w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	return auth.UserWithRoles(r), nil
 }
 
-func proxyHandler(w http.ResponseWriter, r *http.Request) {
-	proxy.Forward(r.FormValue("url"), &w, r)
-}
-
-func downloadLog(w http.ResponseWriter, r *http.Request) {
-	var ld search.LogDownload
-	err := json.NewDecoder(r.Body).Decode(&ld)
-	if err != nil {
-		errorResponse(e.Errorf(500, err.Error()), w, r)
-		return
-	}
-	defer r.Body.Close()
-	b, er := search.DownloadLog(r.Context(), &ld)
-	if er != nil {
-		errorResponse(er, w, r)
-		return
-	}
-
-	w.Header().Add("Content-Type", "application/octet-stream")
-	w.Header().Add("Content-Disposition", fmt.Sprintf("attachment; filename=\"%v\"", path.Base(ld.Log)))
-	w.Write(b)
-}
-
-func health(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
-	return "OK", nil
-}
-
-func printRequest(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
-	return request.Parse(r), nil
-}
-
-func stats(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
-	app, err := toApp(r)
-	if err != nil {
-		return nil, err
-	}
-	return stat.Get(r.Context(), app)
-}
-
-func errors(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
-	app, err := toApp(r)
-	if err != nil {
-		return nil, err
-	}
-	return stat.GetErrors(r.Context(), app)
-}
-
-func tailLog(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
-	app, err := toApp(r)
-	if err != nil {
-		return nil, err
-	}
-	return search.TailLog(r.Context(), app)
-}
-
-func listLogs(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
-	var s, err = toSearch(r)
-	if err != nil {
-		return nil, err
-	}
-	return search.ListLogs(r.Context(), s)
-}
-
-func toApp(r *http.Request) (*search.Application, *e.Error) {
-	var app search.Application
-	bytes, err := ioutil.ReadAll(r.Body)
-	defer r.Body.Close()
-	if err != nil {
-		return nil, e.Errorf(http.StatusInternalServerError, "Could not reead req body, %v", err)
-	}
-	err = json.Unmarshal(bytes, &app)
-	if err != nil {
-		return nil, e.Errorf(http.StatusInternalServerError, "Could not unmarshal data, %v", err)
-	}
-	return &app, nil
-}
-
-func configHandler(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
-	return config.ApplicationsConfig, nil
-}
-
-func searchHandler(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
-	var s, err = toSearch(r)
-	if err != nil {
-		return nil, err
-	}
-	res, er := search.Find(r.Context(), s)
-	return res, er
-}
-
-func toSearch(r *http.Request) (*search.Search, *e.Error) {
-	var s search.Search
-	bytes, err := ioutil.ReadAll(r.Body)
-	defer r.Body.Close()
-	if err != nil {
-		return nil, e.Errorf(http.StatusInternalServerError, "Could not reead req body, %v", err)
-	}
-	err = json.Unmarshal(bytes, &s)
-	if err != nil {
-		return nil, e.Errorf(http.StatusInternalServerError, "Could not unmarshal data, %v", err)
-	}
-	return &s, nil
+func appsConfigHandler(w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	return config.Config.ApplicationsConfig, nil
 }
 
 func notFound(w http.ResponseWriter, r *http.Request) {
 	r = setContext(w, r)
-	log.Error(r.Context(), "Not found [%v] %v", r.Method, r.URL.RequestURI())
+	logger.Error(r.Context(), "Not found [%v] %v, ip: %v", r.Method, r.URL.RequestURI(), r.RemoteAddr)
 	w.WriteHeader(http.StatusNotFound)
 }
 
-func root(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error) {
+func root(w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	return "OK", nil
 }
 
-func register(path string, fn func(w http.ResponseWriter, r *http.Request) (interface{}, *e.Error),
+func registerWithFilters(path string, filters []f.Filter, fn func(w http.ResponseWriter, r *http.Request) (interface{}, error),
 	r *mux.Router, methods ...string) {
-	endpoint := fmt.Sprintf("%s%s", config.ServerConfiguration.Context, path)
+	_register(path, filters, fn, r, methods...)
+}
+
+func register(path string, fn func(w http.ResponseWriter, r *http.Request) (interface{}, error),
+	r *mux.Router, methods ...string) {
+	_register(path, []f.Filter{UserFilterInstance}, fn, r, methods...)
+}
+
+func _register(path string, filters []f.Filter, fn func(w http.ResponseWriter, r *http.Request) (interface{}, error),
+	r *mux.Router, methods ...string) {
+	endpoint := fmt.Sprintf("%s%s", config.Config.ServerConfiguration.Context, path)
 	if endpoint[0] != '/' {
 		endpoint = fmt.Sprintf("/%s", endpoint)
 	}
-	log.Info(context.Background(), "Registered endpoint %s %v", endpoint, methods)
 
 	h := func(w http.ResponseWriter, r *http.Request) {
+		if filters != nil {
+			for _, f := range filters {
+				ok, r := f.DoFilter(r)
+				if !ok {
+					errorResponse(fmt.Errorf("Unauthorized by filter"), w, r)
+					return
+				}
+			}
+		}
 		res, err := fn(w, r)
 		w.Header().Set("Content-Type", "application/json")
 		if err != nil {
 			errorResponse(err, w, r)
+			return
+		}
+		logger.Info(r.Context(), "[%v] %v completed", r.Method, r.URL.RequestURI())
+		if res == nil {
+			return
 		}
 		if err := json.NewEncoder(w).Encode(res); nil != err {
-			errorResponse(e.Errorf(http.StatusInternalServerError, "Could not encode response"), w, r)
+			errorResponse(fmt.Errorf("Could not encode response"), w, r)
 		}
 	}
 	r.HandleFunc(endpoint, h).Methods(methods...)
 }
 
-func registerWithoutResponse(path string, fn func(w http.ResponseWriter, r *http.Request),
-	r *mux.Router, methods ...string) {
-	endpoint := fmt.Sprintf("%s%s", config.ServerConfiguration.Context, path)
-	if endpoint[0] != '/' {
-		endpoint = fmt.Sprintf("/%s", endpoint)
-	}
-	log.Info(context.Background(), "Registered endpoint %s %v", endpoint, methods)
-	r.HandleFunc(endpoint, fn).Methods(methods...)
-}
-
-func registerWS(path string, fn func(w http.ResponseWriter, r *http.Request) *e.Error,
+func registerWS(path string, fn func(w http.ResponseWriter, r *http.Request) error,
 	r *mux.Router) {
-	endpoint := fmt.Sprintf("%s%s", config.ServerConfiguration.Context, path)
+	endpoint := fmt.Sprintf("%s%s", config.Config.ServerConfiguration.Context, path)
 	if endpoint[0] != '/' {
 		endpoint = fmt.Sprintf("/%s", endpoint)
 	}
-	log.Info(context.Background(), "Registered WS endpoint %s", endpoint)
 	h := func(w http.ResponseWriter, r *http.Request) {
 		err := fn(w, r)
 		if err != nil {
-			log.Error(r.Context(), err.Message)
+			logger.Error(r.Context(), err.Error())
 		}
 
 	}
 	r.HandleFunc(endpoint, h)
 }
 
-func errorResponse(err *e.Error, w http.ResponseWriter, r *http.Request) {
-	log.Error(r.Context(), err.Message)
-	w.WriteHeader(err.StatusCode)
-	if er := json.NewEncoder(w).Encode(err); er != nil {
-		log.Error(r.Context(), "error was not serialized, %v", err)
+func errorResponse(err error, w http.ResponseWriter, r *http.Request) {
+	logger.Error(r.Context(), err.Error())
+	logger.Error(r.Context(), "[%v] %v failed", r.Method, r.URL.RequestURI())
+	e := errorJSON{Msg: err.Error()}
+	id := r.Context().Value(log.ReqID)
+	if id != nil {
+		e.ReqID = id.(string)
+	}
+	w.WriteHeader(500)
+	if er := json.NewEncoder(w).Encode(e); er != nil {
+		logger.Error(r.Context(), "error was not serialized, %v", err)
 	}
 }
 
@@ -280,6 +268,6 @@ func setContext(w http.ResponseWriter, r *http.Request) *http.Request {
 	ctx = context.WithValue(ctx, log.ReqID, id)
 	r = r.WithContext(ctx)
 	w.Header().Add("__req_id__", id)
-	log.Info(r.Context(), "request [%v] %v", r.Method, r.URL.RequestURI())
+	logger.Info(r.Context(), "[%v] %v", r.Method, r.URL.RequestURI())
 	return r
 }

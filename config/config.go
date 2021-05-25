@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/ioutil"
-	"log"
-	"net/http"
 
-	e "github.com/RomanLorens/logviewer/error"
-	"github.com/RomanLorens/logviewer/logger"
+	"github.com/RomanLorens/logviewer-module/model"
+	"github.com/RomanLorens/logviewer/common"
+	l "github.com/RomanLorens/logviewer/logger"
+	"github.com/RomanLorens/rl-common/filter"
 )
 
 //ServerConfig config
@@ -21,30 +22,22 @@ type ServerConfig struct {
 	CertKey      string
 }
 
-//LogStructure log structure
-type LogStructure struct {
-	Date    int `json:"date"`
-	User    int `json:"user"`
-	Reqid   int `json:"reqid"`
-	Level   int `json:"level"`
-	Message int `json:"message"`
-}
-
-//Config config
-type Config struct {
-	ID           string        `json:"id"`
-	Application  string        `json:"application"`
-	Hosts        []Host        `json:"hosts"`
-	Env          string        `json:"env"`
-	LogStructure *LogStructure `json:"logStructure"`
-	SupportURLs  []SupportURL  `json:"supportUrls"`
+//AppConfig app config
+type AppConfig struct {
+	ID           string              `json:"id,omitempty" bson:"id,omitempty"`
+	Application  string              `json:"application"`
+	CollectStats bool                `json:"collectStats"`
+	Hosts        []Host              `json:"hosts"`
+	Env          string              `json:"env"`
+	LogStructure *model.LogStructure `json:"logStructure"`
+	SupportURLs  []SupportURL        `json:"supportUrls"`
 }
 
 //Host host
 type Host struct {
 	Paths    []string `json:"paths"`
 	Endpoint string   `json:"endpoint"`
-	Health   string   `json:"health"`
+	AppHost  string   `json:"appHost"`
 }
 
 //SupportURL support url
@@ -56,11 +49,23 @@ type SupportURL struct {
 	Headers     map[string]string `json:"headers"`
 }
 
+//Configuration configuration
+type Configuration struct {
+	ApplicationsConfig    []AppConfig
+	WhiteListIPs          []filter.WhiteList
+	ServerConfiguration   *ServerConfig
+	UserByLoginIDURL      string
+	EnableScheduler       bool
+	Bearer                string
+	EmailServer           string
+	StatsEmailReciepients []string
+}
+
 var (
-	//ServerConfiguration server config
-	ServerConfiguration *ServerConfig
-	//ApplicationsConfig config
-	ApplicationsConfig []*Config
+	resolver Resolver
+	//Config config
+	Config *Configuration
+	logger = l.L
 )
 
 func init() {
@@ -71,35 +76,43 @@ func init() {
 	staticFolder := flag.String("staticFolder", "./dist", "static folder")
 	cert := flag.String("cert", "", "https server cert")
 	certKey := flag.String("certKey", "", "https server cert key")
+	enableScheduler := flag.Bool("enableScheduler", false, "run scheduler on this instance")
 	flag.Parse()
 
-	var err *e.Error
-
 	if *cert != "" && *certKey == "" {
-		log.Panicf("Both cert and cert key must be set!")
+		logger.Panicf(context.Background(), "Both cert and cert key must be set!")
 	}
 
 	switch *cr {
 	case "static":
 		logger.Info(context.Background(), "Loading static config from %v", *configFile)
-		ApplicationsConfig, err = FileConfigResolver{FilePath: *configFile}.GetConfig()
+		resolver = FileConfigResolver{FilePath: *configFile}
 	case "mongo":
 		logger.Info(context.Background(), "Loading mongo config from %v", *configFile)
-		ApplicationsConfig, err = MongoConfigResolver{FilePath: *configFile}.GetConfig()
+		resolver = MongoConfigResolver{FilePath: *configFile}
 	default:
-		log.Panicf("unknown config option")
+		logger.Panicf(context.Background(), "unknown config option")
 	}
+	_config, err := resolver.GetConfig(context.Background())
 	if err != nil {
-		log.Panicf("Could not init configuration with %v, %v", *configFile, err)
+		logger.Panicf(context.Background(), "Could not init configuration with %v, %v", *configFile, err)
 	}
 
-	ServerConfiguration = &ServerConfig{Port: *port, Context: *appContext, StaticFolder: *staticFolder,
+	_config.ServerConfiguration = &ServerConfig{Port: *port, Context: *appContext, StaticFolder: *staticFolder,
 		Cert: *cert, CertKey: *certKey}
+	logger.Info(context.Background(), "Enable scheduler = %v", *enableScheduler)
+	_config.EnableScheduler = *enableScheduler
+
+	Config = _config
 }
 
 //Resolver config resolver
 type Resolver interface {
-	GetConfig() (*Config, *e.Error)
+	GetConfig(ctx context.Context) (*Configuration, error)
+	UpdateAppConfig(ctx context.Context, cfg *AppConfig) (interface{}, error)
+	SaveStats(ctx context.Context, stats *common.Stats) error
+	GetStatsKeys(ctx context.Context, date string) (map[string]int, error)
+	GetAppStats(ctx context.Context, req *common.StatReq) ([]common.Stats, error)
 }
 
 //FileConfigResolver gets config from file
@@ -107,15 +120,65 @@ type FileConfigResolver struct {
 	FilePath string
 }
 
+//SaveStats save stats
+func (FileConfigResolver) SaveStats(ctx context.Context, stats *common.Stats) error {
+	return nil
+}
+
+//UpdateAppConfig update cfg
+func (f FileConfigResolver) UpdateAppConfig(ctx context.Context, cfg *AppConfig) (interface{}, error) {
+	return nil, nil
+}
+
+//GetAppStats get app stats
+func (FileConfigResolver) GetAppStats(ctx context.Context, req *common.StatReq) ([]common.Stats, error) {
+	return nil, nil
+}
+
 //GetConfig config
-func (f FileConfigResolver) GetConfig() ([]*Config, *e.Error) {
-	var c []*Config
+func (f FileConfigResolver) GetConfig(ctx context.Context) (*Configuration, error) {
+	logger.Info(ctx, "Loading config with resolver %v", f)
+	var c []AppConfig
 	b, err := ioutil.ReadFile(f.FilePath)
 	if err != nil {
-		return nil, e.Errorf(http.StatusInternalServerError, "Could not read file %s, %v", f.FilePath, err)
+		return nil, fmt.Errorf("Could not read file %s, %v", f.FilePath, err)
 	}
 	if err = json.Unmarshal(b, &c); err != nil {
-		return nil, e.Errorf(http.StatusInternalServerError, "Could not unmarshal config %v", err)
+		return nil, fmt.Errorf("Could not unmarshal config %v", err)
 	}
-	return c, nil
+	return &Configuration{ApplicationsConfig: c}, nil
+}
+
+//Reload reloads config
+func Reload(ctx context.Context) (*Configuration, error) {
+	cfg, err := resolver.GetConfig(ctx)
+	if err == nil {
+		Config = cfg
+	}
+	return cfg, err
+}
+
+//UpdateAppConfig updates config
+func UpdateAppConfig(ctx context.Context, cfg *AppConfig) (interface{}, error) {
+	return resolver.UpdateAppConfig(ctx, cfg)
+}
+
+//SaveStats save stats
+func SaveStats(ctx context.Context, stats *common.Stats) error {
+	return resolver.SaveStats(ctx, stats)
+}
+
+//GetStatsKeys get stats per date
+func GetStatsKeys(ctx context.Context, date string) (map[string]int, error) {
+	return resolver.GetStatsKeys(ctx, date)
+}
+
+//GetStatsKeys get stats per date
+func (f FileConfigResolver) GetStatsKeys(ctx context.Context, date string) (map[string]int, error) {
+	return nil, nil
+}
+
+//GetAppStats get stats
+func GetAppStats(ctx context.Context, req *common.StatReq) ([]common.Stats, error) {
+	return resolver.GetAppStats(ctx, req)
 }

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Application Stats</title>
+</head>
+
+<body>
+
+  <h4 style="text-align: center;">Stats</h4>
+
+  <table cellspacing="0" cellpadding="5" border="1" style="border-collapse:collapse; width: 100%">
+    <tr>
+      <th>Application</th>
+      <th>Log</th>
+      <th>Environment</th>
+      <th>Requests</th>
+      <th>Errors</th>
+      <th>Users</th>
+      <th>Date</th>
+    </tr>
+    {{range .}}
+    <tr>
+      <td style="text-align: center;">{{.App}}</td>
+      <td style="text-align: center;">{{.LogPath}}</td>
+      <td style="text-align: center;">{{.Env}}</td>
+      <td style="text-align: center;">{{.Stats.Stats.TotalRequests}}</td>
+      {{if (eq .TotalErrors 0) }}
+        <td style="text-align: center;">{{.TotalErrors}}</td>
+      {{else}}
+        <td color="red" style="text-align: center; color: red; font-weight: bold;">{{.TotalErrors}}</td>
+      {{end}}
+      <td style="text-align: center;">{{len .Stats.Stats.Users }}</td>
+      <td style="text-align: center;">{{.Date}}</td>
+    </tr>
+    {{end}}
+  </table>
+
+
+  <h4 style="text-align: center;">Users Details</h4>
+
+  <table cellspacing="0" cellpadding="5" border="1" style="border-collapse:collapse; width: 100%">
+    <tr>
+      <th>Application</th>
+      <th>Log</th>
+      <th>Environment</th>
+      <th style="width: 50%;">Users</th>
+    </tr>
+    {{range .}}
+    <tr>
+      <td style="text-align: center;">{{.App}}</td>
+      <td style="text-align: center;">{{.LogPath}}</td>
+      <td style="text-align: center;">{{.Env}}</td>
+      <td style="text-align: center; padding: 0;">
+        {{range .Users}}
+        <table cellspacing="0" cellpadding="1" style="border-collapse:collapse; width: 100%">
+          <tr>
+            <td style="text-align: center;">
+              <strong>{{ .User }}</strong>
+            </td>
+          </tr>
+          {{range $level, $count := .Level}}
+          <tr>
+            {{if (eq $level "ERROR")}} 
+              <td style="text-align: center; color: red; ; font-weight: bold;">{{ $level }} {{ $count }}</td>
+            {{else}}
+              <td style="text-align: center;">{{ $level }} {{ $count }}</td>
+            {{end}}
+          </tr>
+          {{end}}
+          <tr style="border-bottom: 1px solid grey;"><td></td></tr>
+        </table>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+  </table>
+
+
+</body>
+
+</html>

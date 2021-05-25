@@ -15,11 +15,11 @@ type UserAuth struct {
 func UserWithRoles(r *http.Request) *UserAuth {
 	user := UserFromRequest(r)
 	roles := make([]string, 0)
-	if user == "user" {
+	if user == "rl78794" {
 		roles = append(roles, "admin")
 	} else {
 		ra := r.RemoteAddr
-		if strings.Contains(ra, "11.1.1.1") || strings.Contains(ra, "[::1]") {
+		if strings.Contains(ra, "10.106.11.95") || strings.Contains(ra, "[::1]") {
 			roles = append(roles, "admin")
 		}
 	}
@@ -31,9 +31,9 @@ func UserWithRoles(r *http.Request) *UserAuth {
 
 //UserFromRequest user
 func UserFromRequest(r *http.Request) string {
-	u := r.Header.Get("x-ssoid")
+	u := r.Header.Get("x-citiportal-ssoid")
 	if u == "" {
-		u = r.Header.Get("x-LoginID")
+		u = r.Header.Get("x-citiportal-LoginID")
 	}
 	if u == "" {
 		u = "anonymous"
